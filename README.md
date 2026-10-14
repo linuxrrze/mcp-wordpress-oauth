@@ -69,7 +69,7 @@ sequenceDiagram
     MCP->>U: Consent screen
     U->>WP: authorize-application.php: log in, approve "MCP"
     WP->>MCP: /wp/callback with a new Application Password
-    Note over MCP: Checks consent cookie, site, password;<br/>stores it encrypted
+    Note over MCP: Checks consent cookie, site, password,<br/>stores it encrypted
     MCP->>C: code → access + refresh token
     C->>MCP: tools/call
     MCP->>WP: run ability, Basic auth (user's Application Password)
