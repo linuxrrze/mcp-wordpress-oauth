@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Compute the next release version from git tags and commit messages.
 
-Git tags (vX.Y.Z) are the single source of truth for the version
-(docs/decisions.md, D19). Bump rules, applied to the commits since the last
-tag (Conventional Commits style, matched leniently):
+Git tags are the single source of truth for the version (docs/decisions.md,
+D11). Two components are versioned independently, each from its own tags and
+only from the commits that touch it:
+
+- server: tags vX.Y.Z, commits outside wordpress-plugin/mcp-bearer-auth/
+- plugin: tags mcp-bearer-auth-vX.Y.Z, commits inside it
+
+Bump rules, applied to those commits since the component's last tag
+(Conventional Commits style, matched leniently):
 
 - "BREAKING CHANGE" in a message, or a "type!:" subject  -> major
 - a "feat:" / "feat(scope):" subject                    -> minor
@@ -15,7 +21,7 @@ a deliberate choice: use `--bump major` via the workflow's manual trigger).
 
 No tag yet -> INITIAL_VERSION. No commits since the last tag -> no release.
 
-Usage: next_version.py [--bump auto|patch|minor|major]
+Usage: next_version.py [--component server|plugin] [--bump auto|patch|minor|major]
 Prints key=value lines (version, tag, previous, release) and appends them to
 $GITHUB_OUTPUT when running in GitHub Actions.
 """
@@ -29,7 +35,12 @@ import subprocess
 import sys
 
 INITIAL_VERSION = "0.1.0"
-TAG_PATTERN = "v[0-9]*.[0-9]*.[0-9]*"
+PLUGIN_PATH = "wordpress-plugin/mcp-bearer-auth/"
+# component -> (tag prefix, pathspec of the commits that count)
+COMPONENTS = {
+    "server": ("v", (".", f":(exclude){PLUGIN_PATH}")),
+    "plugin": ("mcp-bearer-auth-v", (PLUGIN_PATH,)),
+}
 _SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 _BREAKING_SUBJECT = re.compile(r"^\w+(\([^)]*\))?!:", re.MULTILINE)
 _FEAT_SUBJECT = re.compile(r"^feat(\([^)]*\))?:", re.IGNORECASE)
@@ -74,31 +85,33 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
 
 
-def latest_tag() -> str | None:
+def latest_tag(prefix: str) -> str | None:
     try:
-        tag = _git("describe", "--tags", "--abbrev=0", "--match", TAG_PATTERN).strip()
+        tag = _git("describe", "--tags", "--abbrev=0", "--match", f"{prefix}[0-9]*.[0-9]*.[0-9]*").strip()
     except subprocess.CalledProcessError:
         return None
     return tag or None
 
 
-def messages_since(tag: str | None) -> list[str]:
+def messages_since(tag: str | None, paths: tuple[str, ...]) -> list[str]:
     rev = f"{tag}..HEAD" if tag else "HEAD"
-    raw = _git("log", rev, "--format=%B%x00")
+    raw = _git("log", rev, "--format=%B%x00", "--", *paths)
     return [m for m in raw.split("\x00") if m.strip()]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--component", choices=sorted(COMPONENTS), default="server")
     parser.add_argument("--bump", choices=["auto", "patch", "minor", "major"], default="auto")
     args = parser.parse_args(argv)
 
-    tag = latest_tag()
-    version = next_version(tag.lstrip("v") if tag else None, messages_since(tag), args.bump)
+    prefix, paths = COMPONENTS[args.component]
+    tag = latest_tag(prefix)
+    version = next_version(tag.removeprefix(prefix) if tag else None, messages_since(tag, paths), args.bump)
     outputs = {
         "previous": tag or "",
         "version": version or "",
-        "tag": f"v{version}" if version else "",
+        "tag": f"{prefix}{version}" if version else "",
         "release": "true" if version else "false",
     }
     lines = "".join(f"{k}={v}\n" for k, v in outputs.items())

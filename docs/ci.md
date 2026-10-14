@@ -20,11 +20,14 @@ flowchart LR
     test & repo & plugin & integration & version --> build["Build image once<br/>(loaded locally)"]
     build --> scan["Trivy image scan<br/>fixable HIGH / CRITICAL"]
     scan --> smoke["Smoke test<br/>the container"]
-    smoke --> decide{"main and<br/>new commits?"}
-    decide -- "no (PR)" --> stop(["Stop: nothing published"])
+    smoke --> decide{"main and new<br/>server commits?"}
+    decide -- "no" --> stop(["Image not published"])
     decide -- yes --> push["Push the scanned image"]
     push --> tag["Git tag vX.Y.Z"]
-    tag --> release(["GitHub release"])
+    tag --> release(["GitHub release (Latest)"])
+    test & repo & plugin & integration & version --> pdecide{"main and new<br/>plugin commits?"}
+    pdecide -- yes --> ptag["Git tag mcp-bearer-auth-vX.Y.Z"]
+    ptag --> prelease(["GitHub release:<br/>mcp-bearer-auth.zip + readme.txt"])
 ```
 
 **An image is published only if all of these pass:** the full test suite on
@@ -39,8 +42,17 @@ rebuilt (decisions.md D13).
 
 ## Versions
 
-Git tags `vX.Y.Z` are the only place the version lives (D11). On each push to
-`main`, `scripts/next_version.py` looks at the commits since the last tag:
+The server and the WordPress plugin have separate versions (D11). Git tags
+are the only place each version lives:
+
+| Component | Tags | Commits that count | Published as |
+|---|---|---|---|
+| server | `vX.Y.Z` | everything outside `wordpress-plugin/mcp-bearer-auth/` | container image + GitHub release (marked Latest) |
+| plugin | `mcp-bearer-auth-vX.Y.Z` | inside `wordpress-plugin/mcp-bearer-auth/` | GitHub release with `mcp-bearer-auth.zip` and `readme.txt`; sites update through WordPress (D14) |
+
+A commit touching both releases both. On each push to `main`,
+`scripts/next_version.py --component server|plugin` looks at that
+component's commits since its last tag:
 
 | Commit message | Bump | Example |
 |---|---|---|
@@ -48,11 +60,11 @@ Git tags `vX.Y.Z` are the only place the version lives (D11). On each push to
 | `feat:` / `feat(scope):` | minor | `feat(oauth): add CIMD allowlist` |
 | anything else | patch | `fix: ...`, `chore: ...`, or any free text |
 
-- First release ever: `v0.1.0`.
+- First release ever: `v0.1.0` / `mcp-bearer-auth-v0.1.0`.
 - **0.x → 1.0.0** is never automatic. Run the workflow manually (*Actions → CI
-  → Run workflow*) with `bump: major`. The manual trigger also forces a
-  patch/minor/major bump, e.g. to release a base-image security update
-  without a code change.
+  → Run workflow*) with `bump: major` (server) or `plugin_bump: major`. The
+  manual trigger also forces a patch/minor/major bump, e.g. to release a
+  base-image security update without a code change.
 - The tag is created **after** the image is pushed, so a failed run never
   burns a version number. Runs on `main` are serialized, so two pushes can't
   compute the same version.

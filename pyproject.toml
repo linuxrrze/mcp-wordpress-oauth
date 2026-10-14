@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "setuptools-scm>=8"]
+requires = ["setuptools>=69", "setuptools-scm>=9"]  # 9: scm.git.describe_command
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,6 +28,11 @@ mcp-wordpress-oauth = "mcp_wordpress.__main__:main"
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
+# Only the server's vX.Y.Z tags; the plugin has its own (mcp-bearer-auth-vX.Y.Z).
+tag_regex = "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+[tool.setuptools_scm.scm.git]
+describe_command = "git describe --dirty --tags --long --match v[0-9]*"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -2,7 +2,9 @@
 #
 #   pull request -> tests + repo scan + integration stack + image build/scan/smoke test
 #                   (nothing published)
-#   push to main -> the same, then: push image, tag vX.Y.Z, create release
+#   push to main -> the same, then: push image, tag vX.Y.Z, create release;
+#                   independently, tag mcp-bearer-auth-vX.Y.Z and release the
+#                   WordPress plugin zip when the plugin changed
 #
 # Publishing happens only after every gate passed, and it pushes the very
 # image that was scanned and smoke-tested (no rebuild). See docs/ci.md and
@@ -21,7 +23,12 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump (auto = from commit messages)"
+        description: "Server version bump (auto = from commit messages)"
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      plugin_bump:
+        description: "WordPress plugin version bump (auto = from commit messages)"
         type: choice
         options: [auto, patch, minor, major]
         default: auto
@@ -89,9 +96,11 @@ jobs:
 
   # The WordPress plugin (wordpress-plugin/mcp-bearer-auth): unit tests on
   # the lowest and newest supported PHP, coding standards, and the
-  # installable zip (with vendor/, without dev dependencies or tests).
+  # installable zip (with vendor/, without dev dependencies or tests, and
+  # the plugin's own version in its header).
   plugin:
     name: Plugin (PHP ${{ matrix.php }})
+    needs: version
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -116,10 +125,23 @@ jobs:
         run: composer phpcs
       - name: Build zip
         if: matrix.php == '8.1'
+        env:
+          # Release versions only for zips that main will publish.
+          PLUGIN_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.version.outputs.plugin_release == 'true' }}
+          PLUGIN_VERSION: ${{ needs.version.outputs.plugin_version }}
         run: |
           rm -rf vendor && composer install --no-dev --no-interaction --no-progress --optimize-autoloader
           mkdir -p "$RUNNER_TEMP/zip/mcp-bearer-auth"
-          cp -r mcp-bearer-auth.php README.md src vendor "$RUNNER_TEMP/zip/mcp-bearer-auth/"
+          cp -r mcp-bearer-auth.php README.md readme.txt src vendor "$RUNNER_TEMP/zip/mcp-bearer-auth/"
+          # Release version, or a dev version every release updates over.
+          if [[ "$PLUGIN_RELEASE" == "true" ]]; then version="$PLUGIN_VERSION"; else version="${PLUGIN_VERSION:-0.0.0}-dev.${GITHUB_SHA::7}"; fi
+          header="$RUNNER_TEMP/zip/mcp-bearer-auth/mcp-bearer-auth.php"
+          readme="$RUNNER_TEMP/zip/mcp-bearer-auth/readme.txt"
+          sed -i -E "s/^( \* Version: +).*/\1$version/" "$header"
+          sed -i -E "s/^(Stable tag: +).*/\1$version/" "$readme"
+          grep -qE "^ \* Version: +$version\$" "$header" || { echo "Version header not stamped"; exit 1; }
+          grep -qE "^Stable tag: +$version\$" "$readme" || { echo "readme.txt Stable tag not stamped"; exit 1; }
+          echo "Plugin version $version"
           (cd "$RUNNER_TEMP/zip" && zip -qr "$GITHUB_WORKSPACE/mcp-bearer-auth.zip" mcp-bearer-auth)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.php == '8.1'
@@ -165,12 +187,19 @@ jobs:
       version: ${{ steps.next.outputs.version }}
       tag: ${{ steps.next.outputs.tag }}
       release: ${{ steps.next.outputs.release }}
+      previous: ${{ steps.next.outputs.previous }}
+      plugin_version: ${{ steps.plugin.outputs.version }}
+      plugin_tag: ${{ steps.plugin.outputs.tag }}
+      plugin_release: ${{ steps.plugin.outputs.release }}
+      plugin_previous: ${{ steps.plugin.outputs.previous }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: next
-        run: python3 scripts/next_version.py --bump "${{ inputs.bump || 'auto' }}"
+        run: python3 scripts/next_version.py --component server --bump "${{ inputs.bump || 'auto' }}"
+      - id: plugin
+        run: python3 scripts/next_version.py --component plugin --bump "${{ inputs.plugin_bump || 'auto' }}"
 
   image:
     name: Build, scan, publish
@@ -327,19 +356,58 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: steps.plan.outputs.publish == 'true' && github.server_url == 'https://github.com'
-        with:
-          name: mcp-bearer-auth
-          path: ${{ runner.temp }}/plugin
-
+      # The repository's "Latest" release is always the server's; the plugin
+      # updater looks for its own tags (D14).
       - name: GitHub release
         if: steps.plan.outputs.publish == 'true' && github.server_url == 'https://github.com'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          PREVIOUS: ${{ needs.version.outputs.previous }}
           IMAGE: ${{ steps.plan.outputs.image }}
         run: |
-          gh release create "$TAG" --title "$TAG" --generate-notes \
-            --notes "Image: \`$IMAGE:${TAG#v}\`. WordPress plugin for AUTH_MODE=resource/proxy: mcp-bearer-auth.zip" \
-            "$RUNNER_TEMP/plugin/mcp-bearer-auth.zip"
+          gh release create "$TAG" --title "$TAG" --latest --generate-notes ${PREVIOUS:+--notes-start-tag "$PREVIOUS"} \
+            --notes "Image: \`$IMAGE:${TAG#v}\`. The WordPress plugin (MCP Bearer Auth) has its own releases, tagged mcp-bearer-auth-v*."
+
+  # The WordPress plugin, versioned on its own (D11): released when commits
+  # touched wordpress-plugin/mcp-bearer-auth/, after the same gates as the
+  # image. Sites with the plugin pick it up through WordPress' updater (D14).
+  plugin-release:
+    name: Release WordPress plugin
+    needs: [test, scan-repo, plugin, integration, version]
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && needs.version.outputs.plugin_release == 'true' && github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the mcp-bearer-auth-vX.Y.Z tag and release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mcp-bearer-auth
+          path: ${{ runner.temp }}/plugin
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.plugin_tag }}
+          VERSION: ${{ needs.version.outputs.plugin_version }}
+          PREVIOUS: ${{ needs.version.outputs.plugin_previous }}
+        run: |
+          zip="$RUNNER_TEMP/plugin/mcp-bearer-auth.zip"
+          unzip -p "$zip" mcp-bearer-auth/mcp-bearer-auth.php | grep -qE "^ \* Version: +$VERSION\$" \
+            || { echo "The zip's header doesn't say $VERSION"; exit 1; }
+          # The release's readme.txt is the zip's: WordPress shows its
+          # requirements and sections before updating (D14).
+          unzip -p "$zip" mcp-bearer-auth/readme.txt > "$RUNNER_TEMP/readme.txt"
+          grep -qE "^Stable tag: +$VERSION\$" "$RUNNER_TEMP/readme.txt" || { echo "readme.txt doesn't say $VERSION"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "MCP Bearer Auth $VERSION"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "MCP Bearer Auth $VERSION" --latest=false \
+            --generate-notes ${PREVIOUS:+--notes-start-tag "$PREVIOUS"} \
+            --notes "WordPress plugin for AUTH_MODE=resource/proxy. Install mcp-bearer-auth.zip once (Plugins → Add New → Upload); later versions arrive through WordPress' updates." \
+            "$zip" "$RUNNER_TEMP/readme.txt"

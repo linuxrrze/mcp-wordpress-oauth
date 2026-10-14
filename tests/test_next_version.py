@@ -54,9 +54,49 @@ def test_against_a_real_git_repo(tmp_path, monkeypatch):
     git("commit", "-q", "--allow-empty", "-m", "chore: init")
     git("tag", "v0.2.0")
     git("tag", "not-a-version")
-    git("commit", "-q", "--allow-empty", "-m", "feat: something")
+    (tmp_path / "a.txt").write_text("x")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "feat: something")
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     assert nv.main([]) == 0
     assert output.read_text() == "previous=v0.2.0\nversion=0.3.0\ntag=v0.3.0\nrelease=true\n"
+
+
+def test_server_and_plugin_are_versioned_independently(tmp_path, monkeypatch):
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    def commit(path, message):
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(message)
+        git("add", "-A")
+        git("commit", "-q", "-m", message)
+
+    def outputs(component):
+        output = tmp_path / f"out-{component}"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+        assert nv.main(["--component", component]) == 0
+        return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    commit("src/a.py", "chore: init")
+    git("tag", "v1.0.0")
+    git("tag", "mcp-bearer-auth-v0.2.0")
+    commit("wordpress-plugin/mcp-bearer-auth/src/X.php", "feat: plugin feature")
+    commit("src/a.py", "fix: server fix")
+    commit("wordpress-plugin/mcp-bearer-auth-other/x", "feat: not the plugin, despite the prefix")
+    monkeypatch.chdir(tmp_path)
+
+    server = outputs("server")
+    assert (server["previous"], server["tag"]) == ("v1.0.0", "v1.1.0")
+    plugin = outputs("plugin")
+    assert (plugin["previous"], plugin["tag"]) == ("mcp-bearer-auth-v0.2.0", "mcp-bearer-auth-v0.3.0")
+
+    git("tag", "mcp-bearer-auth-v0.3.0")
+    commit("src/a.py", "fix: another server fix")
+    assert outputs("plugin")["release"] == "false"
+    assert outputs("server")["tag"] == "v1.1.0"  # plugin tags don't count as server releases
