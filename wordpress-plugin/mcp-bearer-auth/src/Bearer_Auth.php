@@ -119,11 +119,17 @@ class Bearer_Auth {
 	 * @return \WP_Error|null|true
 	 */
 	public function rest_authentication_errors( $result ) {
-		if ( ! empty( $result ) || null === $this->error ) {
+		if ( ! empty( $result ) ) {
 			return $result;
 		}
 
-		return $this->error;
+		// WordPress determines the current user lazily, on a REST request
+		// often only after this filter (in a permission callback). Make
+		// determine_current_user run now, or a refused token would find no
+		// error here and pass as an anonymous request.
+		wp_get_current_user();
+
+		return $this->error ?? $result;
 	}
 
 	/**

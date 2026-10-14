@@ -134,6 +134,17 @@ class BearerAuthTest extends TestCase {
 		$this->assertSame( 1, $auth->determine_current_user( false ) );
 	}
 
+	public function test_refusal_found_when_the_user_is_determined_lazily() {
+		// As in WordPress: nothing has asked for the current user before the
+		// rest_authentication_errors filter runs.
+		$auth = $this->auth();
+		Functions\when( 'wp_get_current_user' )->alias( static function () use ( $auth ) {
+			$auth->determine_current_user( false );
+		} );
+		$this->request( $this->token( array( 'sub' => 'kc-nobody' ) ) );
+		$this->assertError( 'mcp_bearer_unmatched', 401, $auth );
+	}
+
 	public function test_earlier_errors_are_kept() {
 		$auth    = $this->auth();
 		$earlier = new \WP_Error( 'earlier', 'x' );

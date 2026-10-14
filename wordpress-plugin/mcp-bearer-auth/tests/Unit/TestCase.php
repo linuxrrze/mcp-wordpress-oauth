@@ -95,6 +95,7 @@ abstract class TestCase extends Base {
 					return $text;
 				},
 				'is_ssl'                 => true,
+				'wp_get_current_user'    => static function () {},
 				'is_multisite'           => false,
 				'wp_is_serving_rest_request' => true,
 				'wp_get_environment_type' => function () {
