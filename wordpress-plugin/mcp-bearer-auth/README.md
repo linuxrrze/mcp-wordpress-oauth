@@ -93,14 +93,32 @@ If every bearer request is treated as anonymous, add this to `.htaccess`:
 SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
 ```
 
-## Install and develop
+## Install and update
 
-You need the `vendor/` directory, which holds firebase/php-jwt.
+Upload `mcp-bearer-auth.zip` from the latest plugin release (tags
+`mcp-bearer-auth-vX.Y.Z` on
+[GitHub](https://github.com/linuxrrze/mcp-wordpress-oauth/releases); the
+plugin is versioned separately from the MCP server) under Plugins → Add New
+→ Upload Plugin.
 
-- **Install:** use the zip that CI builds, or run `composer install --no-dev`
-  in this directory.
-- **Develop:** run `composer install`, then `composer test` and
-  `composer phpcs`.
+After that, updates work as for a plugin from wordpress.org: WordPress
+checks the repository's plugin releases (at most every 6 hours), shows new
+versions under Dashboard → Updates with their requirements and "View
+details", and installs them with "Update now" or automatically once you
+"Enable auto-updates" on the Plugins screen. Each release carries its
+`readme.txt`, which is what WordPress shows.
+
+```php
+define( 'MCP_BEARER_AUTO_UPDATE', true );   // always auto-update (false: never); unset: the Plugins screen decides
+define( 'MCP_BEARER_UPDATE_CHECK', false ); // never contact GitHub (updates by hand or by your deployment)
+```
+
+## Develop
+
+You need the `vendor/` directory, which holds firebase/php-jwt: run
+`composer install`, then `composer test` and `composer phpcs`. A checkout's
+version is `0.0.0-dev`; CI stamps the release version into the zip's
+header and `readme.txt`.
 
 php-jwt classes are shared across plugins. If another plugin loads an older
 php-jwt (6.x) first, that copy is used instead, and its API is compatible.
