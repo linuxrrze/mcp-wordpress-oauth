@@ -2,7 +2,7 @@
 
 One resolver per AUTH_MODE family:
 - BearerResolver (resource, proxy): the Keycloak access token itself goes to
-  WordPress, where sso-login-oidc's bearer feature maps it to the linked
+  WordPress, where a bearer plugin (MCP Bearer Auth) maps it to the matching
   WordPress user (D5, D6).
 - GrantResolver (wordpress, in wp_oauth.py): the token points at a stored
   Application Password grant.
@@ -47,8 +47,8 @@ class BearerResolver:
 
     def unauthorized_hint(self) -> str:
         return (
-            "WordPress did not accept your sign-in token. Check in WordPress (Settings > SSO Login OIDC > "
-            f"Advanced): bearer token authentication is enabled with audience {self.audience!r} and the same "
-            "provider as this server's issuer, and your WordPress account is linked to your SSO account "
-            "(log in to WordPress once with SSO)."
+            "WordPress did not accept your sign-in token. WordPress needs a plugin that accepts bearer "
+            f"tokens from this server's issuer with audience {self.audience!r} (e.g. MCP Bearer Auth, "
+            "wordpress-plugin/ in this server's repository), and your WordPress account must match your "
+            "SSO account (usually: log in to WordPress with SSO once)."
         )

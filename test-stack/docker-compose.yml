@@ -1,5 +1,5 @@
-# Disposable test stack: Keycloak + WordPress 6.9 (sso-login-oidc with its
-# bearer feature, "Enable Abilities for MCP", test abilities) + this server in
+# Disposable test stack: Keycloak + WordPress 6.9 (MCP Bearer Auth from
+# ../wordpress-plugin, "Enable Abilities for MCP", test abilities) + this server in
 # both AUTH_MODE=resource and AUTH_MODE=wordpress. Everything is test-only:
 # fixed secrets, plain HTTP inside the stack network, ports bound to
 # 127.0.0.1. See test-stack/README.md.
@@ -8,9 +8,11 @@
 #   docker compose -f test-stack/docker-compose.yml run --rm e2e
 #   docker compose -f test-stack/docker-compose.yml down -v
 #
-# SSO_PLUGIN_DIR: a checkout of sso-login-oidc (default: the sibling
-# directory ../../wordpress-openid-connect-plugin). It is copied, never
-# written to: service sso-plugin runs `composer install` on a copy.
+# The bearer plugin (wordpress-plugin/mcp-bearer-auth) is copied, never
+# written to: service bearer-plugin runs `composer install` on a copy.
+# No OIDC login plugin is needed: wp-setup stores alice's and bob's
+# Keycloak subjects in the user meta key a login plugin would (OpenID
+# Connect Generic's), and MCP Bearer Auth matches on it.
 # E2E_MODE: resource | wordpress | all (default) selects the e2e checks.
 #
 # Every container reaches the others by service name (http://keycloak:8080,
@@ -48,9 +50,12 @@ x-wordpress-db: &wordpress-db
   # (wp-setup) needs it as much as Apache does.
   # "local": Application Passwords over plain HTTP, and an http
   # success_url for authorize-application.php (both need HTTPS
-  # otherwise); sso-login-oidc's bearer feature likewise.
+  # otherwise); MCP Bearer Auth likewise (requests and key downloads).
   WORDPRESS_CONFIG_EXTRA: |
     define( 'WP_ENVIRONMENT_TYPE', 'local' );
+    define( 'MCP_BEARER_ISSUER', 'http://keycloak:8080/realms/wp' );
+    define( 'MCP_BEARER_AUDIENCE', 'mcp-wordpress' );
+    define( 'MCP_BEARER_USER_MATCH', 'meta:openid-connect-generic-subject-identity' );
     define( 'WP_HOME', 'http://wordpress' );
     define( 'WP_SITEURL', 'http://wordpress' );
     define( 'WP_DEBUG', true );
@@ -59,7 +64,7 @@ x-wordpress-db: &wordpress-db
 
 x-wordpress-volumes: &wordpress-volumes
   - wordpress:/var/www/html
-  - sso-plugin:/var/www/html/wp-content/plugins/sso-login-oidc
+  - bearer-plugin:/var/www/html/wp-content/plugins/mcp-bearer-auth
   - ./wordpress/e2e-abilities.php:/var/www/html/wp-content/mu-plugins/e2e-abilities.php:ro
 
 services:
@@ -94,23 +99,22 @@ services:
       timeout: 5s
       retries: 60
 
-  # sso-login-oidc with its Composer dependencies, on a copy of
-  # SSO_PLUGIN_DIR (the checkout's own vendor/ is left alone).
-  sso-plugin:
+  # MCP Bearer Auth with its Composer dependencies, on a copy of
+  # ../wordpress-plugin/mcp-bearer-auth (its own vendor/ is left alone).
+  bearer-plugin:
     image: composer:2
     entrypoint: ["sh", "-c"]
     command:
       - |
         set -e
         find /plugin -mindepth 1 -delete
-        tar -C /src --exclude=./vendor --exclude=./vendor-prefixed --exclude=./node_modules \
-            --exclude=./.git --exclude=./tests -cf - . | tar -C /plugin -xf -
+        tar -C /src --exclude=./vendor --exclude=./tests -cf - . | tar -C /plugin -xf -
         cd /plugin
         composer install --no-dev --no-interaction --no-progress --optimize-autoloader
         chown -R 33:33 /plugin
     volumes:
-      - ${SSO_PLUGIN_DIR:-../../wordpress-openid-connect-plugin}:/src:ro
-      - sso-plugin:/plugin
+      - ../wordpress-plugin/mcp-bearer-auth:/src:ro
+      - bearer-plugin:/plugin
 
   db:
     image: mariadb:${MARIADB_VERSION:-11.4}
@@ -134,7 +138,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      sso-plugin:
+      bearer-plugin:
         condition: service_completed_successfully
     healthcheck:
       # Apache answers PHP (the image has no curl).
@@ -154,7 +158,7 @@ services:
       EAM: ${EAM:-on}
     volumes:
       - wordpress:/var/www/html
-      - sso-plugin:/var/www/html/wp-content/plugins/sso-login-oidc
+      - bearer-plugin:/var/www/html/wp-content/plugins/mcp-bearer-auth
       - ./wordpress/e2e-abilities.php:/var/www/html/wp-content/mu-plugins/e2e-abilities.php:ro
       - ./wordpress:/setup:ro
     depends_on:
@@ -225,6 +229,6 @@ services:
 
 volumes:
   realm:
-  sso-plugin:
+  bearer-plugin:
   wordpress:
   mcp-wp-data:

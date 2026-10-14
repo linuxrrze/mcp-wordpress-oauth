@@ -23,24 +23,38 @@ and admins switch them on and off in WordPress.
 sequenceDiagram
     participant OW as Open WebUI
     participant MCP as mcp-wordpress-oauth
-    participant WP as WordPress + sso-login-oidc
+    participant WP as WordPress + MCP Bearer Auth
 
     OW->>MCP: tools/call, Bearer (user's Keycloak token)
     Note over MCP: Verifies signature, issuer,<br/>audience mcp-wordpress
     MCP->>WP: /wp-abilities/v1/…/run, Bearer (same token)
-    Note over WP: sso-login-oidc bearer feature:<br/>same checks, (iss, sub) → linked user
+    Note over WP: MCP Bearer Auth plugin:<br/>same checks, sub/email → existing user
     WP-->>MCP: Result, as that user
     MCP-->>OW: Tool result
 ```
 
-This mode needs the **bearer token feature of sso-login-oidc** (Settings > SSO
-Login OIDC > Advanced): enable it, set the audience to `mcp-wordpress` and
-use the same provider as `OIDC_ISSUER`. Each user must have signed in to
-WordPress with SSO once, which links their accounts. Keycloak tokens need
-`mcp-wordpress` in `aud` (audience mapper). Some Apache/CGI setups drop the
-`Authorization` header before PHP sees it. If WordPress answers every call
-as if no one were signed in, add
-`SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` to `.htaccess`.
+This mode needs a WordPress plugin that accepts the token. This repository
+ships one: **[MCP Bearer Auth](wordpress-plugin/mcp-bearer-auth/README.md)**.
+It works alongside any OIDC login plugin. Install the `mcp-bearer-auth.zip`
+from a release, then set the following in `wp-config.php`:
+
+```php
+define( 'MCP_BEARER_ISSUER', 'https://sso.example.com/realms/main' );  // = OIDC_ISSUER
+define( 'MCP_BEARER_USER_MATCH', 'meta:_sso_oidc_subject' );            // or: email, login
+```
+
+`MCP_BEARER_USER_MATCH` sets how a token finds its WordPress user:
+- `meta:<key>`: the user meta key in which your login plugin stores the SSO
+  subject. sso-login-oidc uses `_sso_oidc_subject`; OpenID Connect Generic
+  uses `openid-connect-generic-subject-identity`.
+- `email`: the token's verified email address.
+- `login`: the token's `preferred_username` claim.
+
+Other details:
+- Keycloak tokens need `mcp-wordpress` in `aud`. Add an audience mapper, and
+  keep the same value in `MCP_AUDIENCE` here and in `MCP_BEARER_AUDIENCE`.
+- Any other plugin that accepts such bearer tokens on the Abilities routes
+  works too. One example is sso-login-oidc's own bearer feature.
 
 ### `wordpress`: this server is the OAuth server
 
@@ -105,8 +119,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
 
-The unit and HTTP tests need neither Keycloak nor WordPress. The end-to-end
-stack with real WordPress, Keycloak and sso-login-oidc is in `test-stack/`
-(Docker).
+The unit and HTTP tests need neither Keycloak nor WordPress. The WordPress
+plugin has its own tests: run `composer install && composer test` in
+`wordpress-plugin/mcp-bearer-auth`. The end-to-end stack, with real
+WordPress, Keycloak and the plugin, is in `test-stack/` (Docker).
 
 Why things are the way they are: [docs/decisions.md](docs/decisions.md).

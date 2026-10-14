@@ -7,8 +7,8 @@ decisions are ports of its own.
 The target setups:
 
 > **A.** Users sign in to **Open WebUI** with **Keycloak**. Open WebUI calls
-> this MCP server with the user's Keycloak token. **WordPress** (with
-> `sso-login-oidc`) trusts the same realm.
+> this MCP server with the user's Keycloak token. **WordPress** (with the
+> bundled MCP Bearer Auth plugin) trusts the same realm.
 >
 > **B.** Users connect **claude.ai** or **ChatGPT** to this server as a custom
 > connector and sign in with their **WordPress** account. No Keycloak.
@@ -84,7 +84,7 @@ WordPress.
 
 | `AUTH_MODE` | Client authenticates with | WordPress credential |
 |---|---|---|
-| `resource` (default) | Keycloak access token (`aud` ∋ `MCP_AUDIENCE`) | the same token, via sso-login-oidc's bearer feature |
+| `resource` (default) | Keycloak access token (`aud` ∋ `MCP_AUDIENCE`) | the same token, via the MCP Bearer Auth plugin (D6) |
 | `proxy` | FastMCP OIDCProxy session (or a direct Keycloak token) | the upstream Keycloak token |
 | `wordpress` | this server's own OAuth 2.1 tokens | the user's Application Password |
 
@@ -109,23 +109,40 @@ drops the user's cached tool list and, in `wordpress` mode, the grant.
 
 ---
 
-## D6. sso-login-oidc bearer feature: route-limited, no provisioning
+## D6. WordPress side: a bundled, login-plugin-independent bearer plugin
 
-**Context.** WordPress has no way to accept a Keycloak access token.
-`sso-login-oidc` already has the provider config, JWKS handling and the
-user ↔ subject link.
+**Context.** WordPress has no way to accept an OIDC access token. Most
+OIDC login plugins only handle the browser login, and the one that does
+accept bearer tokens (sso-login-oidc) would make this server depend on one
+particular login plugin. The plugin must also map the token to a user, and
+each login plugin records that link differently.
 
-**Decision.** A `determine_current_user` hook in the plugin
-(`includes/Auth/Bearer_Auth.php`, off by default) that accepts
-`Authorization: Bearer <JWT>` only on REST routes under
-`/wp-abilities/v1/`, `/mcp/` and `GET /wp/v2/users/me` (filterable),
-checks signature, `iss`, `aud` (= `MCP_AUDIENCE`), expiry and token type,
-and maps `(iss, sub)` to an already linked user. No provisioning, no email
-fallback.
+**Decision.** This repository ships its own small WordPress plugin,
+`wordpress-plugin/mcp-bearer-auth`. It does only the bearer part, and it
+reads the user mapping from whatever the login plugin left behind.
+- **Hooks:** `determine_current_user` and `rest_authentication_errors`,
+  only on REST routes under `/wp-abilities/v1/` and `/mcp/`, plus
+  `GET /wp/v2/users/me` (filterable). Path tricks and method overrides are
+  refused.
+- **Token checks:** an asymmetric signature from the issuer's JWKS (keys
+  cached, refetched on an unknown `kid` at most every 5 minutes), plus
+  `iss`, `aud` (= `MCP_AUDIENCE`), `exp`, `sub`, and access-token type.
+- **User matching** (`MCP_BEARER_USER_MATCH`): `meta:<key>` (the login
+  plugin's stored subject; refused if two users share it), `email` (only
+  with `email_verified`), or `login`. Nothing is provisioned.
+- **Configuration:** constants in `wp-config.php`, not an options page.
+  Whoever can change them decides which tokens log in as whom.
 
-**Consequences.** A user must have signed in to WordPress with SSO once.
-An access token for this server can't be replayed against the rest of the
-REST API.
+The server depends only on the contract: `Authorization: Bearer` on those
+routes, with the user's own permissions, and a 401 with a message
+otherwise. Any plugin that fulfils it works, including sso-login-oidc's
+built-in feature.
+
+**Consequences.** The integration stack and CI need no other repository.
+PHP code with a JWT dependency (firebase/php-jwt 7) lives here, with its own
+tests and phpcs in CI, and every security check is covered by a test that
+fails without it. php-jwt classes are global: if another plugin loads an
+older 6.x first, that copy is used, and its API is compatible.
 
 ---
 

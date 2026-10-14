@@ -101,7 +101,7 @@ async def resource_mode() -> None:
     check("alice's token names mcp-wordpress in aud (audience mapper)",
           "mcp-wordpress" in (aud if isinstance(aud, list) else [aud]), aud)
 
-    # WordPress on its own: sso-login-oidc's bearer feature.
+    # WordPress on its own: the MCP Bearer Auth plugin.
     me = httpx2.get(f"{REST}/wp/v2/users/me", headers={"Authorization": f"Bearer {alice}"})
     check("WordPress accepts the token on /wp/v2/users/me as alice (Authorization reaches PHP)",
           me.status_code == 200 and me.json().get("slug") == "alice", me.text[:300])
@@ -160,10 +160,10 @@ async def resource_mode() -> None:
     check("alice may run it", not error, text)
 
     carol_tools = await tool_names(MCP_RESOURCE, carol)
-    check("carol (no linked WordPress account) gets no ability tools", carol_tools == {"whoami"}, carol_tools)
+    check("carol (no matching WordPress account) gets no ability tools", carol_tools == {"whoami"}, carol_tools)
     _, error, text = await tool(MCP_RESOURCE, carol, "whoami")
-    check("carol's whoami explains it: unlinked account, how to fix",
-          error and "No WordPress account is linked" in text and "linked to your SSO account" in text, text)
+    check("carol's whoami explains it: unmatched account, how to fix",
+          error and "No WordPress account matches" in text and "must match your SSO account" in text, text)
 
 
 # ── AUTH_MODE=wordpress ───────────────────────────────────────────────────────

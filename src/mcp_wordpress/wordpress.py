@@ -1,7 +1,7 @@
 """The WordPress side: REST calls made on behalf of one user.
 
 Every call takes a `WPCredential`: the caller's Keycloak bearer token
-(AUTH_MODE resource/proxy, accepted by sso-login-oidc's bearer feature) or
+(AUTH_MODE resource/proxy, accepted by a bearer plugin such as MCP Bearer Auth) or
 their Application Password (AUTH_MODE wordpress). There is no service
 account: WordPress itself decides what the user may do (D5).
 

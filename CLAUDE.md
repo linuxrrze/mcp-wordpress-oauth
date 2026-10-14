@@ -3,13 +3,15 @@
 MCP server (FastMCP 4.1) exposing a WordPress 6.9+ site's **Abilities** as
 MCP tools, one per ability, executed **as the signed-in WordPress user**.
 Three inbound auth modes (`AUTH_MODE`): `resource` (Keycloak token forwarded
-to WordPress, accepted by sso-login-oidc's bearer feature), `proxy` (FastMCP
+to WordPress, accepted by the bundled MCP Bearer Auth plugin or any
+equivalent), `proxy` (FastMCP
 OIDCProxy + the same), `wordpress` (this server is the OAuth 2.1 server;
 credential = per-user Application Password, stored encrypted).
 
 Sibling of `~/git/mcp-mail-oauth`; Docker, CI, test and versioning
-conventions come from there. The WordPress side of `resource`/`proxy` lives
-in `~/git/wordpress-openid-connect-plugin` (`includes/Auth/Bearer_Auth.php`).
+conventions come from there. The WordPress side of `resource`/`proxy` is
+`wordpress-plugin/mcp-bearer-auth` (PHP, its own tests; independent of any
+OIDC login plugin, D6). sso-login-oidc has an equivalent feature of its own.
 
 **`docs/decisions.md` (D1–D13) is the source of truth for *why*.** Read the
 relevant decision before changing auth, credential handling, client
@@ -27,7 +29,8 @@ admission or the ability→tool mapping, and update it when you change one.
 | `src/mcp_wordpress/wp_oauth.py` | `AUTH_MODE=wordpress`: `WordPressAuthServer(OAuthProxy)`, `Grant`, `GrantStore`, `WordPressGrantClient`, `WordPressGrantVerifier`, `GrantResolver` |
 | `src/mcp_wordpress/server.py` | `create_server()`: provider, `whoami`, `/healthz`, `EndpointPaths`, startup client-settings log |
 | `tests/fake_wp.py` | `FakeWordPress`: Abilities API, users/me, Application Passwords, bearer feature, behind `httpx2.MockTransport` |
-| `test-stack/` | WordPress + Keycloak + sso-login-oidc + both server modes in Docker; `e2e.py` |
+| `wordpress-plugin/mcp-bearer-auth/` | WordPress plugin: `Bearer_Auth` (hooks, routes, error contract), `Token_Verifier` (JWKS, claims), `User_Resolver` (meta/email/login), `Config` (`MCP_BEARER_*` constants); PHPUnit + Brain Monkey tests |
+| `test-stack/` | WordPress + Keycloak + MCP Bearer Auth + both server modes in Docker; `e2e.py` |
 
 ## Key patterns
 
@@ -65,11 +68,22 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 ```
 
 `conftest.py`: `make_token(subject, audience, issuer, expires_in)`,
-`fake_wp` (alice admin + bob author linked to SSO subjects, carol unlinked
+`fake_wp` (alice admin + bob author matching SSO subjects, carol unmatched
 editor; four abilities), `serve(app)` (runs the lifespan), `rpc`/`call`/
 `tool_names`. Extend `FakeWordPress` rather than mocking calls.
 `test_wp_oauth.py` drives the full browser flow (register → authorize →
 consent → WordPress approval → callback → token → MCP).
+
+WordPress plugin (needs PHP 8.1+ and Composer; this dev box has neither
+installed, a static PHP CLI from dl.static-php.dev works):
+
+```bash
+cd wordpress-plugin/mcp-bearer-auth && composer install && composer test && composer phpcs
+```
+
+Its security checks each have a test that fails without them (verified by
+removing each check); keep it that way when adding one. The fake WordPress
+in `tests/fake_wp.py` mirrors the plugin's error contract (`mcp_bearer_*`).
 
 End to end (needs Docker, which this dev box doesn't have; CI runs it):
 

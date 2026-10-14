@@ -46,7 +46,7 @@ def make_token(keypair):
 
 @pytest.fixture
 def fake_wp():
-    """alice (administrator) and bob (author) are linked to SSO subjects;
+    """alice (administrator) and bob (author) match SSO subjects;
     carol exists in WordPress only."""
     wp = FakeWordPress()
     wp.add_user("alice", roles=["administrator"], sub="kc-alice")

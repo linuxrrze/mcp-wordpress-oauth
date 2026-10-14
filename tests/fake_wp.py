@@ -3,8 +3,9 @@
 It models what this server relies on: the Abilities API (paged list,
 per-user visibility, run with the method rule of WP 6.9's run controller),
 users/me, Application Passwords (Basic auth, introspect, delete) and
-sso-login-oidc's bearer feature (a JWT whose `sub` is linked to a user; the
-signature was already checked by this server, so it isn't re-checked here).
+a bearer plugin (wordpress-plugin/mcp-bearer-auth: a JWT whose `sub`
+matches a user; the signature was already checked by this server, so it
+isn't re-checked here).
 Extend it rather than mocking calls one by one.
 """
 
@@ -30,7 +31,7 @@ class User:
     login: str
     name: str
     roles: list[str]
-    sub: str | None = None  # linked SSO subject (sso-login-oidc)
+    sub: str | None = None  # SSO subject stored by the login plugin
 
 
 @dataclass
@@ -160,11 +161,11 @@ class FakeWordPress:
                 payload = header[7:].split(".")[1]
                 claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
             except (IndexError, ValueError):
-                return None, None, "bearer:?", _error(401, "sso_oidc_bearer_invalid", "Invalid bearer token.")
+                return None, None, "bearer:?", _error(401, "mcp_bearer_invalid", "Invalid bearer token.")
             user = next((u for u in self.users.values() if u.sub and u.sub == claims.get("sub")), None)
             if user is None:
-                return None, None, "bearer:?", _error(401, "sso_oidc_bearer_unlinked",
-                                                      "No WordPress account is linked to this SSO account.")
+                return None, None, "bearer:?", _error(401, "mcp_bearer_unmatched",
+                                                      "No WordPress account matches this token's user.")
             return user, None, f"bearer:{user.login}", None
         return None, None, "anonymous", None
 

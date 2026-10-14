@@ -87,9 +87,51 @@ jobs:
           exit-code: "1"
           trivyignores: .trivyignore
 
-  # The real chain: Keycloak tokens, WordPress 6.9's Abilities API with
-  # sso-login-oidc's bearer feature, and the full AUTH_MODE=wordpress OAuth
-  # flow through wp-login.php and authorize-application.php.
+  # The WordPress plugin (wordpress-plugin/mcp-bearer-auth): unit tests on
+  # the lowest and newest supported PHP, coding standards, and the
+  # installable zip (with vendor/, without dev dependencies or tests).
+  plugin:
+    name: Plugin (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.1", "8.4"]
+    defaults:
+      run:
+        working-directory: wordpress-plugin/mcp-bearer-auth
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+      - name: Install
+        run: composer install --no-interaction --no-progress
+      - name: Unit tests
+        run: composer test
+      - name: Coding standards
+        if: matrix.php == '8.4'
+        run: composer phpcs
+      - name: Build zip
+        if: matrix.php == '8.1'
+        run: |
+          rm -rf vendor && composer install --no-dev --no-interaction --no-progress --optimize-autoloader
+          mkdir -p "$RUNNER_TEMP/zip/mcp-bearer-auth"
+          cp -r mcp-bearer-auth.php README.md src vendor "$RUNNER_TEMP/zip/mcp-bearer-auth/"
+          (cd "$RUNNER_TEMP/zip" && zip -qr "$GITHUB_WORKSPACE/mcp-bearer-auth.zip" mcp-bearer-auth)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.php == '8.1'
+        with:
+          name: mcp-bearer-auth
+          path: mcp-bearer-auth.zip
+          if-no-files-found: error
+
+  # The real chain: Keycloak tokens, WordPress 6.9's Abilities API with the
+  # MCP Bearer Auth plugin from this repository, and the full
+  # AUTH_MODE=wordpress OAuth flow through wp-login.php and
+  # authorize-application.php. Self-contained: no other repository needed.
   integration:
     name: Integration (AUTH_MODE=${{ matrix.auth_mode }})
     runs-on: ubuntu-latest
@@ -102,20 +144,6 @@ jobs:
       COMPOSE: docker compose -f test-stack/docker-compose.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # sso-login-oidc lives in its own repository (Gitea). A plain clone, so
-      # it works from GitHub and Gitea runners alike; SSO_PLUGIN_TOKEN only
-      # if that repository is private (docs/ci.md).
-      - name: Check out sso-login-oidc
-        env:
-          REPO: ${{ vars.SSO_PLUGIN_REPO || 'https://git.linux-ng.de/marcel/wordpress-openid-connect-plugin.git' }}
-          REF: ${{ vars.SSO_PLUGIN_REF || 'main' }}
-          TOKEN: ${{ secrets.SSO_PLUGIN_TOKEN }}
-        run: |
-          url="$REPO"
-          if [ -n "$TOKEN" ]; then url="https://oauth2:${TOKEN}@${REPO#https://}"; fi
-          git clone --quiet --depth 1 --branch "$REF" "$url" "$RUNNER_TEMP/sso-login-oidc"
-          git -C "$RUNNER_TEMP/sso-login-oidc" log -1 --format='sso-login-oidc %h %s'
-          echo "SSO_PLUGIN_DIR=$RUNNER_TEMP/sso-login-oidc" >> "$GITHUB_ENV"
       - name: Build
         run: $COMPOSE build
       # `run` starts the stack and waits for its healthchecks first.
@@ -124,7 +152,7 @@ jobs:
       - name: Logs
         if: always()
         run: |
-          $COMPOSE logs --no-color --tail 200 keycloak sso-plugin wp-setup wordpress mcp-resource mcp-wp
+          $COMPOSE logs --no-color --tail 200 keycloak bearer-plugin wp-setup wordpress mcp-resource mcp-wp
           $COMPOSE exec -T wordpress tail -n 100 /var/www/html/wp-content/debug.log || true
       - name: Tear down
         if: always()
@@ -146,7 +174,7 @@ jobs:
 
   image:
     name: Build, scan, publish
-    needs: [test, scan-repo, integration, version]
+    needs: [test, scan-repo, plugin, integration, version]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the vX.Y.Z tag and release
@@ -299,6 +327,12 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.plan.outputs.publish == 'true' && github.server_url == 'https://github.com'
+        with:
+          name: mcp-bearer-auth
+          path: ${{ runner.temp }}/plugin
+
       - name: GitHub release
         if: steps.plan.outputs.publish == 'true' && github.server_url == 'https://github.com'
         env:
@@ -307,4 +341,5 @@ jobs:
           IMAGE: ${{ steps.plan.outputs.image }}
         run: |
           gh release create "$TAG" --title "$TAG" --generate-notes \
-            --notes "Image: \`$IMAGE:${TAG#v}\`"
+            --notes "Image: \`$IMAGE:${TAG#v}\`. WordPress plugin for AUTH_MODE=resource/proxy: mcp-bearer-auth.zip" \
+            "$RUNNER_TEMP/plugin/mcp-bearer-auth.zip"

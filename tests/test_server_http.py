@@ -141,19 +141,19 @@ async def test_wordpress_403_is_a_tool_error(client, make_token, fake_wp):
     assert fake_wp.runs("ewpa/delete-post") == []
 
 
-async def test_unlinked_user_gets_a_hint(client, make_token):
+async def test_unmatched_user_gets_a_hint(client, make_token):
     assert await tool_names(client, make_token("kc-nobody")) == {"whoami"}
     result = await call(client, make_token("kc-nobody"), "whoami")
     assert result["isError"]
     text = result["content"][0]["text"]
-    assert "No WordPress account is linked" in text and "mcp-wordpress" in text
+    assert "No WordPress account matches" in text and "mcp-wordpress" in text
 
 
 async def test_bearer_feature_off_is_explained(client, make_token, fake_wp):
     fake_wp.bearer_enabled = False
     result = await call(client, make_token(), "whoami")
     assert result["isError"]
-    assert "bearer token authentication" in result["content"][0]["text"]
+    assert "accepts bearer tokens" in result["content"][0]["text"]
 
 
 async def test_wordpress_down_is_a_tool_error(client, make_token, fake_wp):

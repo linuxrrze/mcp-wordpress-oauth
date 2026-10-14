@@ -68,8 +68,8 @@ def client_settings(settings: Settings) -> list[str]:
         lines += [
             "  Open WebUI: Type MCP (Streamable HTTP), Auth: OAuth (forwards the user's Keycloak token)",
             f"  Tokens must come from {settings.oidc_issuer} with {settings.mcp_audience!r} in aud",
-            "  WordPress (sso-login-oidc > Advanced): enable bearer token authentication with audience "
-            f"{settings.mcp_audience!r}",
+            "  WordPress: MCP Bearer Auth (or another bearer plugin) with MCP_BEARER_ISSUER="
+            f"{settings.oidc_issuer} and MCP_BEARER_AUDIENCE={settings.mcp_audience}",
         ]
         if settings.auth_mode == "proxy":
             lines.append(f"  AUTH_MODE=proxy: Keycloak client {settings.oidc_client_id!r} needs the redirect URI "

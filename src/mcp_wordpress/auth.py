@@ -3,7 +3,7 @@ how a verified token becomes the credential WordPress sees (D4).
 
 - ``resource`` (default): a pure OAuth resource server for Keycloak access
   tokens with MCP_AUDIENCE in `aud`. The same token goes on to WordPress,
-  where sso-login-oidc's bearer feature maps it to the linked user (D5, D6).
+  where a bearer plugin (MCP Bearer Auth) maps it to the matching user (D5, D6).
 - ``proxy``: additionally runs FastMCP's OIDCProxy against Keycloak for MCP
   clients that insist on the MCP authorization flow (DCR). Tools still get
   the upstream Keycloak token; directly forwarded tokens keep working.

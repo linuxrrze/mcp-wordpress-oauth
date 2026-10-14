@@ -11,12 +11,13 @@ flowchart LR
         direction TB
         test["Tests<br/>Python 3.11 / 3.12 / 3.13"]
         repo["Trivy repository scan<br/>secrets, misconfig"]
-        integration["Integration stack<br/>Keycloak + WordPress 6.9 + sso-login-oidc,<br/>AUTH_MODE resource / wordpress"]
+        plugin["WordPress plugin<br/>PHPUnit PHP 8.1 / 8.4, phpcs, zip"]
+        integration["Integration stack<br/>Keycloak + WordPress 6.9 + MCP Bearer Auth,<br/>AUTH_MODE resource / wordpress"]
         version["Next version<br/>from tags + commits"]
     end
 
-    trigger --> test & repo & integration & version
-    test & repo & integration & version --> build["Build image once<br/>(loaded locally)"]
+    trigger --> test & repo & plugin & integration & version
+    test & repo & plugin & integration & version --> build["Build image once<br/>(loaded locally)"]
     build --> scan["Trivy image scan<br/>fixable HIGH / CRITICAL"]
     scan --> smoke["Smoke test<br/>the container"]
     smoke --> decide{"main and<br/>new commits?"}
@@ -97,14 +98,12 @@ settings* if needed.
 | variable | `REGISTRY_USERNAME` | `ci-bot` |
 | secret | `REGISTRY_PASSWORD` | token with push rights |
 
-**sso-login-oidc for the integration stack.** The integration job clones the
-plugin with a plain `git clone`, so it works on GitHub and Gitea runners:
-
-| Kind | Name | Default |
-|---|---|---|
-| variable | `SSO_PLUGIN_REPO` | `https://git.linux-ng.de/marcel/wordpress-openid-connect-plugin.git` |
-| variable | `SSO_PLUGIN_REF` | `main` (must contain the bearer feature, `includes/Auth/Bearer_Auth.php`) |
-| secret | `SSO_PLUGIN_TOKEN` | unset; only if that repository is private: a read-only access token, sent as `https://oauth2:<token>@…` |
+**The WordPress plugin** (`wordpress-plugin/mcp-bearer-auth`) is tested in its
+own job: PHPUnit on PHP 8.1 and 8.4, and phpcs (WordPress Coding Standards).
+The same job builds `mcp-bearer-auth.zip`, which includes `vendor/` but no dev
+dependencies or tests. Every run uploads it as an artifact, and releases attach
+it. The integration stack builds the plugin from the same directory, so CI needs
+no other repository.
 
 The stack also needs internet access for `composer install` (the plugin's
 dependencies) and wordpress.org ("Enable Abilities for MCP").

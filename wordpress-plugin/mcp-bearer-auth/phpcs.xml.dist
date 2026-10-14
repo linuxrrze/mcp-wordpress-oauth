@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<ruleset name="mcp-bearer-auth">
+	<file>mcp-bearer-auth.php</file>
+	<file>src</file>
+	<arg name="extensions" value="php"/>
+	<config name="testVersion" value="8.1-"/>
+	<rule ref="WordPress">
+		<!-- PSR-4 class files (Composer autoloading), not class-*.php. -->
+		<exclude name="WordPress.Files.FileName"/>
+	</rule>
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="mcp-bearer-auth"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

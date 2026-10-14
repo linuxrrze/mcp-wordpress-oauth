@@ -3,9 +3,9 @@
 #   - WordPress core at http://wordpress (the URL every container uses)
 #   - users alice (administrator), bob (author), carol (editor); password = username
 #   - pretty permalinks, so /wp-json/... routes work
-#   - sso-login-oidc (built by service sso-plugin) with the Keycloak provider
-#     and its bearer feature, alice and bob linked to their Keycloak subjects
-#     (carol is not: the "unlinked user" case)
+#   - MCP Bearer Auth (built by service bearer-plugin; configured by the
+#     MCP_BEARER_* constants in docker-compose.yml), alice and bob matched
+#     to their Keycloak subjects (carol is not: the "unmatched user" case)
 #   - "Enable Abilities for MCP" from wordpress.org (EAM=off skips it)
 # Idempotent: a second run changes nothing that matters.
 set -eu
@@ -33,7 +33,7 @@ for spec in alice:administrator bob:author carol:editor; do
   wp user set-role "$u" "$role" >/dev/null
 done
 
-wp plugin activate sso-login-oidc
+wp plugin activate mcp-bearer-auth
 if [ "${EAM:-on}" = on ]; then
   wp plugin is-installed enable-abilities-for-mcp || wp plugin install enable-abilities-for-mcp
   wp plugin activate enable-abilities-for-mcp

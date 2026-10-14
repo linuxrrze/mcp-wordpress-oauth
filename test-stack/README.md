@@ -1,7 +1,7 @@
 # Disposable test stack
 
-Keycloak, WordPress 6.9 (with sso-login-oidc's bearer feature, "Enable
-Abilities for MCP" and a set of test abilities) and this server in both
+Keycloak, WordPress 6.9 (with the MCP Bearer Auth plugin from
+`../wordpress-plugin`, "Enable Abilities for MCP" and a set of test abilities) and this server in both
 `AUTH_MODE=resource` and `AUTH_MODE=wordpress`, plus end-to-end checks of
 both chains. Use it to try the setup, to compare against your own
 configuration, or to reproduce a problem. CI runs the same checks before
@@ -16,22 +16,19 @@ docker compose -f test-stack/docker-compose.yml down -v          # removes every
 `run --rm e2e` also starts the stack if it isn't up yet. `E2E_MODE=resource`
 or `E2E_MODE=wordpress` runs only one mode's checks (default: both).
 
-**sso-login-oidc** comes from a checkout next to this repository
-(`../wordpress-openid-connect-plugin`), or from `SSO_PLUGIN_DIR`:
-
-```bash
-SSO_PLUGIN_DIR=/path/to/sso-login-oidc docker compose -f test-stack/docker-compose.yml up -d --build
-```
-
-It needs the bearer token feature (`includes/Auth/Bearer_Auth.php`); the setup
-stops with a clear error otherwise. The checkout is only read: service
-`sso-plugin` copies it and runs `composer install` on the copy.
+The stack is self-contained. **MCP Bearer Auth** comes from
+`wordpress-plugin/mcp-bearer-auth` in this repository; service `bearer-plugin`
+copies it and runs `composer install` on the copy. No OIDC login plugin is
+installed: `wp-setup` stores alice's and bob's Keycloak subjects in the user
+meta key OpenID Connect Generic uses
+(`MCP_BEARER_USER_MATCH=meta:openid-connect-generic-subject-identity`), the
+way a first SSO login would.
 
 ```mermaid
 flowchart LR
     e2e["e2e runner<br/>(Open WebUI + browser)"] -- "Keycloak token" --> res["mcp-resource :8000<br/>AUTH_MODE=resource"]
     e2e -- "OAuth 2.1 flow,<br/>its own tokens" --> wpm["mcp-wp :8000<br/>AUTH_MODE=wordpress"]
-    res -- "same Keycloak token<br/>(Bearer)" --> wp["wordpress<br/>WP 6.9 + sso-login-oidc"]
+    res -- "same Keycloak token<br/>(Bearer)" --> wp["wordpress<br/>WP 6.9 + MCP Bearer Auth"]
     wpm -- "Application Password<br/>(Basic)" --> wp
     wp -- "JWKS" --> kc["keycloak :8080<br/>realm wp"]
     res -- "JWKS" --> kc
@@ -45,10 +42,10 @@ flowchart LR
 |---|---|
 | `init` | Writes the realm to import (`init/prepare.sh`) |
 | `keycloak` | Keycloak 26, dev mode, realm `wp`: users `alice`, `bob`, `carol` (password = username, fixed ids); client `openwebui` with an audience mapper for `mcp-wordpress`; client `other` without one |
-| `sso-plugin` | sso-login-oidc from `SSO_PLUGIN_DIR`, with `composer install --no-dev`, into a volume |
+| `bearer-plugin` | MCP Bearer Auth from `../wordpress-plugin/mcp-bearer-auth`, with `composer install --no-dev`, into a volume |
 | `db` | MariaDB for WordPress |
-| `wordpress` | `wordpress:6.9-apache`, `WP_ENVIRONMENT_TYPE=local` (Application Passwords and bearer auth over plain HTTP), the must-use plugin [`wordpress/e2e-abilities.php`](wordpress/e2e-abilities.php) |
-| `wp-setup` | wp-cli: installs WordPress, users alice (administrator), bob (author), carol (editor), activates sso-login-oidc and "Enable Abilities for MCP", configures the provider and bearer auth, links alice and bob to their Keycloak subjects ([`wordpress/wp-setup.sh`](wordpress/wp-setup.sh), [`wordpress/provision.php`](wordpress/provision.php)) |
+| `wordpress` | `wordpress:6.9-apache`, `WP_ENVIRONMENT_TYPE=local` (Application Passwords and bearer auth over plain HTTP), `MCP_BEARER_*` constants, the must-use plugin [`wordpress/e2e-abilities.php`](wordpress/e2e-abilities.php) |
+| `wp-setup` | wp-cli: installs WordPress, users alice (administrator), bob (author), carol (editor), activates MCP Bearer Auth and "Enable Abilities for MCP", stores alice's and bob's Keycloak subjects in user meta (carol: none) ([`wordpress/wp-setup.sh`](wordpress/wp-setup.sh), [`wordpress/provision.php`](wordpress/provision.php)) |
 | `mcp-resource` | This server, `AUTH_MODE=resource`, built from the working tree |
 | `mcp-wp` | This server, `AUTH_MODE=wordpress`, DCR on |
 | `e2e` | [`e2e.py`](e2e.py), run on demand |
@@ -100,8 +97,8 @@ In order; the first failure stops the run and names the failing link.
    DELETE with a scalar, a wrapped string input.
 7. bob running `e2e-editor-only` gets a tool error naming
    `rest_ability_cannot_execute`; alice may run it.
-8. carol (no linked WordPress account) gets only `whoami`, and it explains
-   the missing link.
+8. carol (no matching WordPress account) gets only `whoami`, and it explains
+   what's missing.
 
 **`AUTH_MODE=wordpress`**
 
@@ -127,5 +124,5 @@ docker compose -f test-stack/docker-compose.yml logs wp-setup wordpress mcp-reso
 docker compose -f test-stack/docker-compose.yml exec wordpress tail -n 50 /var/www/html/wp-content/debug.log
 ```
 
-`wp-setup` failing usually means the sso-login-oidc checkout has no bearer
-feature, or wordpress.org wasn't reachable (`EAM=off`).
+`wp-setup` failing usually means MCP Bearer Auth didn't load (`bearer-plugin`
+couldn't run `composer install`) or wordpress.org wasn't reachable (`EAM=off`).
