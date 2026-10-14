@@ -30,10 +30,10 @@ add_action(
 /**
  * What every e2e ability returns.
  *
- * @param mixed $input The ability input, as WordPress passed it.
+ * @param mixed $input The ability input, as WordPress passed it (none for no input).
  * @return array
  */
-function mcp_e2e_report( $input ) {
+function mcp_e2e_report( $input = null ) {
 	$user = wp_get_current_user();
 	return array(
 		'method' => isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : '',
