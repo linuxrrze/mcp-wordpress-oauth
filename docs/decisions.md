@@ -230,6 +230,19 @@ into Docker builds (`ARG VERSION`), where `.git` isn't in the context.
 `scripts/next_version.py` derives the next version from conventional
 commit subjects.
 
+**Two components, two version lines.** The server (image) and the
+WordPress plugin ship to different people on different schedules: a server
+fix shouldn't make every site admin "update" an unchanged plugin, and a
+plugin fix shouldn't publish a new image. So the plugin has its own tags,
+`mcp-bearer-auth-vX.Y.Z`, and each component's next version counts only the
+commits that touch it (`--component plugin`: commits inside
+`wordpress-plugin/mcp-bearer-auth/`; `server`: all others). setuptools-scm
+is told to see only `v*` tags (`tag_regex`, `describe_command`; needs
+setuptools-scm ≥ 9). The repository's "Latest" GitHub release is always the
+server's. The plugin's version lives only in the tag: CI stamps it into the
+zip's `Version` header and `readme.txt` `Stable tag`; a checkout says
+`0.0.0-dev`.
+
 ---
 
 ## D12. FastMCP 4, httpx2, compatible-range pins
@@ -245,3 +258,37 @@ majors. MCP SDK v2 field names (`read_only_hint`, …) are used throughout.
 Non-root (uid 10001), Debian security updates applied at build, Trivy in
 CI fails on fixable HIGH/CRITICAL findings not listed in `.trivyignore`
 (each entry with a reason and review date).
+
+---
+
+## D14. Plugin updates from GitHub releases
+
+The plugin isn't on wordpress.org, so without help a site would never
+learn of a new version. It uses core's own mechanism for that case (WP
+5.8+): the `Update URI` header names the GitHub repository, and core asks
+the `update_plugins_github.com` filter (`Updater`) instead of wordpress.org.
+Everything after that is core: the update row, "Update now", bulk updates,
+the auto-update toggle and its emails. No update library, no extra
+dependency.
+
+- **Which release:** the highest `mcp-bearer-auth-vX.Y.Z` that is neither
+  draft nor prerelease and carries `mcp-bearer-auth.zip`. Server releases
+  in the same repository are ignored.
+- **What WordPress shows:** each release also carries that version's
+  `readme.txt` (the standard plugin readme). Its `Requires at least`,
+  `Tested up to` and `Requires PHP` go into the update offer, so core shows
+  compatibility and refuses an update the site's PHP can't run; its
+  sections (description, installation, FAQ) plus the GitHub release notes
+  fill "View details" (`plugins_api`). Without a readme, the installed
+  headers apply.
+- **Trust:** the package is installed as code, so only this repository's own
+  release download URL (`https://github.com/<repo>/releases/download/<tag>/…`)
+  is accepted, never another URL an API response names. The repository
+  comes from the `Update URI` header, so a fork updates from itself.
+  Downloaded readme text is escaped; links are http(s) only; requirement
+  fields must look like versions.
+- **Rate limit:** GitHub allows 60 unauthenticated API calls per hour and IP.
+  The answer is cached for 6 hours (failures 1 hour) in a site transient.
+- **Opt-outs:** `MCP_BEARER_UPDATE_CHECK = false` never contacts GitHub
+  (managed deployments, the test stack); `MCP_BEARER_AUTO_UPDATE` forces
+  auto-updates on or off, otherwise the admin's toggle decides.

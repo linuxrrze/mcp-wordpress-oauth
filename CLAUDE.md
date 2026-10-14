@@ -13,7 +13,7 @@ conventions come from there. The WordPress side of `resource`/`proxy` is
 `wordpress-plugin/mcp-bearer-auth` (PHP, its own tests; independent of any
 OIDC login plugin, D6). sso-login-oidc has an equivalent feature of its own.
 
-**`docs/decisions.md` (D1–D13) is the source of truth for *why*.** Read the
+**`docs/decisions.md` (D1–D14) is the source of truth for *why*.** Read the
 relevant decision before changing auth, credential handling, client
 admission or the ability→tool mapping, and update it when you change one.
 
@@ -29,7 +29,7 @@ admission or the ability→tool mapping, and update it when you change one.
 | `src/mcp_wordpress/wp_oauth.py` | `AUTH_MODE=wordpress`: `WordPressAuthServer(OAuthProxy)`, `Grant`, `GrantStore`, `WordPressGrantClient`, `WordPressGrantVerifier`, `GrantResolver` |
 | `src/mcp_wordpress/server.py` | `create_server()`: provider, `whoami`, `/healthz`, `EndpointPaths`, startup client-settings log |
 | `tests/fake_wp.py` | `FakeWordPress`: Abilities API, users/me, Application Passwords, bearer feature, behind `httpx2.MockTransport` |
-| `wordpress-plugin/mcp-bearer-auth/` | WordPress plugin: `Bearer_Auth` (hooks, routes, error contract), `Token_Verifier` (JWKS, claims), `User_Resolver` (meta/email/login), `Config` (`MCP_BEARER_*` constants); PHPUnit + Brain Monkey tests |
+| `wordpress-plugin/mcp-bearer-auth/` | WordPress plugin: `Bearer_Auth` (hooks, routes, error contract), `Token_Verifier` (JWKS, claims), `User_Resolver` (meta/email/login), `Config` (`MCP_BEARER_*` constants), `Updater` + `Readme` (updates from its GitHub releases, D14); `readme.txt` is what WordPress shows; PHPUnit + Brain Monkey tests |
 | `test-stack/` | WordPress + Keycloak + MCP Bearer Auth + both server modes in Docker; `e2e.py` |
 
 ## Key patterns
@@ -98,3 +98,5 @@ docker compose -f test-stack/docker-compose.yml down -v
 As mcp-mail (`docs/ci.md`): tests, Trivy, integration matrix
 (`resource`, `wordpress`), image build → scan → smoke test → push → tag.
 Version from conventional commit subjects (`scripts/next_version.py`).
+Server (`vX.Y.Z`) and plugin (`mcp-bearer-auth-vX.Y.Z`) are versioned and
+released independently, each from the commits that touch it (D11).

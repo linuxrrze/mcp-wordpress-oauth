@@ -58,6 +58,7 @@ x-wordpress-db: &wordpress-db
     define( 'MCP_BEARER_ISSUER', 'http://keycloak:8080/realms/wp' );
     define( 'MCP_BEARER_AUDIENCE', 'mcp-wordpress' );
     define( 'MCP_BEARER_USER_MATCH', 'meta:openid-connect-generic-subject-identity' );
+    define( 'MCP_BEARER_UPDATE_CHECK', false ); // hermetic: never ask GitHub
     define( 'WP_HOME', 'http://wordpress' );
     define( 'WP_SITEURL', 'http://wordpress' );
     define( 'WP_DEBUG', true );

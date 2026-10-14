@@ -35,8 +35,12 @@ sequenceDiagram
 
 This mode needs a WordPress plugin that accepts the token. This repository
 ships one: **[MCP Bearer Auth](wordpress-plugin/mcp-bearer-auth/README.md)**.
-It works alongside any OIDC login plugin. Install the `mcp-bearer-auth.zip`
-from a release, then set the following in `wp-config.php`:
+It works alongside any OIDC login plugin. Install `mcp-bearer-auth.zip` from
+the latest [plugin release](https://github.com/linuxrrze/mcp-wordpress-oauth/releases)
+(tagged `mcp-bearer-auth-vX.Y.Z`; the plugin is versioned separately from
+the server). After that, WordPress offers new versions under Dashboard →
+Updates, and auto-updates work as for any plugin. Then set the following in
+`wp-config.php`:
 
 ```php
 define( 'MCP_BEARER_ISSUER', 'https://sso.example.com/realms/main' );  // = OIDC_ISSUER
