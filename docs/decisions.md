@@ -96,6 +96,13 @@ away; a service outside WordPress can't present them anywhere else.
 (D6) and store nothing; `wordpress` needs no WordPress plugin besides core
 but stores secrets (D8).
 
+In `proxy` and `wordpress` this server is an OAuth authorization server
+and `BASE_URL` its issuer. The MCP SDK refuses a plain-http issuer except
+on loopback, so config rejects that combination up front (`ConfigError`
+rather than a crash at startup); `BASE_URL_ALLOW_HTTP` only relaxes
+`resource`. The test stack therefore runs its e2e client in the `mcp-wp`
+container's network namespace and uses `BASE_URL=http://localhost:8000`.
+
 ---
 
 ## D5. WordPress decides; no service account

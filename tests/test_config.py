@@ -87,6 +87,23 @@ def test_http_wordpress_allowed_explicitly():
         "http://wordpress"
 
 
+
+def test_http_base_url_allowed_explicitly_in_resource_mode():
+    assert load({**BASE_ENV, "BASE_URL": "http://mcp:8000", "BASE_URL_ALLOW_HTTP": "on"}).base_url == \
+        "http://mcp:8000"
+
+
+@pytest.mark.parametrize("env", [
+    {**WP_ENV},
+    {**BASE_ENV, "AUTH_MODE": "proxy", "OIDC_CLIENT_ID": "mcp", "OIDC_CLIENT_SECRET": "s"},
+], ids=["wordpress", "proxy"])
+def test_oauth_server_modes_need_https_base_url(env):
+    # The MCP SDK rejects a plain-http OAuth issuer on anything but loopback.
+    with pytest.raises(ConfigError, match="requires an https BASE_URL"):
+        load({**env, "BASE_URL": "http://mcp:8000", "BASE_URL_ALLOW_HTTP": "on"})
+    assert load({**env, "BASE_URL": "http://localhost:8000"}).base_url == "http://localhost:8000"
+
+
 @pytest.mark.parametrize("prefix, expected", [("/wp-json", "/wp-json"), ("wp-json/", "/wp-json"),
                                               ("/blog/wp-json", "/blog/wp-json"), ("", "")])
 def test_rest_prefix(prefix, expected):

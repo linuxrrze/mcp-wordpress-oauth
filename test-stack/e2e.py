@@ -33,7 +33,7 @@ OIDC = f"{KEYCLOAK}/realms/wp/protocol/openid-connect"
 WORDPRESS = os.environ.get("WORDPRESS_URL", "http://wordpress")
 REST = f"{WORDPRESS}/wp-json"
 MCP_RESOURCE = os.environ.get("MCP_RESOURCE_URL", "http://mcp-resource:8000")
-MCP_WP = os.environ.get("MCP_WP_URL", "http://mcp-wp:8000")
+MCP_WP = os.environ.get("MCP_WP_URL", "http://localhost:8001")
 OPENWEBUI = {"client_id": "openwebui", "client_secret": "openwebui-test-secret"}
 OTHER = {"client_id": "other", "client_secret": "other-test-secret"}
 # The MCP client's redirect URI in the wordpress-mode flow. Nothing listens

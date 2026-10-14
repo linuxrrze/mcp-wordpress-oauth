@@ -108,6 +108,11 @@ def _url(env: dict[str, str], key: str, *, allow_http: bool = False) -> str:
     return value
 
 
+def _is_https_or_loopback(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme == "https" or _is_loopback(parts.hostname)
+
+
 def _redirect_patterns(patterns: tuple[str, ...]) -> tuple[str, ...]:
     """Wildcards in the path only (D9): a host wildcard would let anyone who
     can register a matching domain receive authorization codes."""
@@ -211,6 +216,11 @@ def load(env: dict[str, str] | None = None) -> Settings:
 
     auth_mode = _choice(env, "AUTH_MODE", "resource", ("resource", "proxy", "wordpress"))
     base_url = _url(env, "BASE_URL", allow_http=_flag(env, "BASE_URL_ALLOW_HTTP", False))
+    if auth_mode != "resource" and not _is_https_or_loopback(base_url):
+        # Here BASE_URL is an OAuth issuer, which the MCP SDK refuses over
+        # plain http on anything but loopback (D4), BASE_URL_ALLOW_HTTP or not.
+        raise ConfigError(f"AUTH_MODE={auth_mode} requires an https BASE_URL "
+                          f"(plain http only on localhost), got {base_url!r}.")
 
     rest_prefix = env.get("WP_REST_PREFIX", "/wp-json").strip()
     wordpress = WordPressSettings(

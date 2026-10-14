@@ -16,9 +16,11 @@
 # E2E_MODE: resource | wordpress | all (default) selects the e2e checks.
 #
 # Every container reaches the others by service name (http://keycloak:8080,
-# http://wordpress, http://mcp-wp:8000); those names are also the URLs in
-# tokens, WordPress' siteurl and the OAuth redirects. The e2e runner plays
-# the browser, so nothing needs to resolve them on the host.
+# http://wordpress); those names are also the URLs in tokens and WordPress'
+# siteurl. mcp-wp is the exception: as an OAuth issuer its BASE_URL must be
+# https or loopback, so it is http://localhost:8001 and e2e runs in its
+# network namespace. The e2e runner plays the browser, so nothing needs to
+# resolve on the host.
 
 name: mcp-wordpress-test
 
@@ -190,7 +192,11 @@ services:
     environment:
       <<: *mcp-common
       AUTH_MODE: wordpress
-      BASE_URL: http://mcp-wp:8000
+      # An OAuth issuer must be https or loopback (D4), so this one is
+      # localhost: e2e shares this container's network namespace, and the
+      # same port on the host makes the URL work in a browser too.
+      BASE_URL: http://localhost:${MCP_WP_PORT:-8001}
+      PORT: ${MCP_WP_PORT:-8001}
       # Test-only keys. Generate your own: docs and .env.example.
       OAUTH_JWT_SIGNING_KEY: test-stack-signing-key-not-a-secret-0123456789
       OAUTH_STORAGE_KEY: vS4Bku_FA3AY7bx0Rvwfw4h8-Mmln6i4dEkbWPFDV_I=
@@ -199,7 +205,7 @@ services:
     volumes:
       - mcp-wp-data:/data
     ports:
-      - "127.0.0.1:${MCP_WP_PORT:-8001}:8000"
+      - "127.0.0.1:${MCP_WP_PORT:-8001}:${MCP_WP_PORT:-8001}"
     healthcheck: *mcp-healthcheck
     depends_on:
       mcp-resource:
@@ -213,12 +219,14 @@ services:
     image: mcp-wordpress-oauth:test
     profiles: [e2e]
     entrypoint: ["python", "/e2e.py"]
+    # mcp-wp's BASE_URL is localhost (see there); other services by name.
+    network_mode: "service:mcp-wp"
     environment:
       E2E_MODE: ${E2E_MODE:-all}
       KEYCLOAK_URL: http://keycloak:8080
       WORDPRESS_URL: http://wordpress
       MCP_RESOURCE_URL: http://mcp-resource:8000
-      MCP_WP_URL: http://mcp-wp:8000
+      MCP_WP_URL: http://localhost:${MCP_WP_PORT:-8001}
     volumes:
       - ./e2e.py:/e2e.py:ro
     depends_on:

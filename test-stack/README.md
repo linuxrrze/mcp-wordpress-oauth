@@ -27,7 +27,7 @@ way a first SSO login would.
 ```mermaid
 flowchart LR
     e2e["e2e runner<br/>(Open WebUI + browser)"] -- "Keycloak token" --> res["mcp-resource :8000<br/>AUTH_MODE=resource"]
-    e2e -- "OAuth 2.1 flow,<br/>its own tokens" --> wpm["mcp-wp :8000<br/>AUTH_MODE=wordpress"]
+    e2e -- "OAuth 2.1 flow,<br/>its own tokens" --> wpm["mcp-wp :8001<br/>AUTH_MODE=wordpress"]
     res -- "same Keycloak token<br/>(Bearer)" --> wp["wordpress<br/>WP 6.9 + MCP Bearer Auth"]
     wpm -- "Application Password<br/>(Basic)" --> wp
     wp -- "JWKS" --> kc["keycloak :8080<br/>realm wp"]
@@ -51,12 +51,15 @@ flowchart LR
 | `e2e` | [`e2e.py`](e2e.py), run on demand |
 
 Containers talk to each other by service name, and those names are also the
-URLs that appear in tokens (`iss` = `http://keycloak:8080/realms/wp`),
-WordPress' site URL (`http://wordpress`) and the OAuth redirects
-(`http://mcp-wp:8000/wp/callback`). The e2e runner plays the browser, so the
-host doesn't need to resolve them. To click through by hand, map `keycloak`,
-`wordpress` and `mcp-wp` to 127.0.0.1 in your hosts file and use the ports from
-the compose file (8080, 8081, 8001).
+URLs that appear in tokens (`iss` = `http://keycloak:8080/realms/wp`) and
+WordPress' site URL (`http://wordpress`). `mcp-wp` is the exception: as an
+OAuth issuer its `BASE_URL` must be https or loopback, so it is
+`http://localhost:8001` (OAuth redirects go to
+`http://localhost:8001/wp/callback`), and `e2e` runs in `mcp-wp`'s network
+namespace to reach it there. The e2e runner plays the browser, so the host
+doesn't need to resolve anything. To click through by hand, map `keycloak`
+and `wordpress` to 127.0.0.1 in your hosts file and use the ports from the
+compose file (8080, 8081, 8001).
 
 `EAM=off` skips installing "Enable Abilities for MCP" (it needs internet
 access from the wp-setup container); the checks only use the test abilities.
