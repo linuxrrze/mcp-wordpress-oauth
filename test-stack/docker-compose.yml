@@ -1,0 +1,230 @@
+# Disposable test stack: Keycloak + WordPress 6.9 (sso-login-oidc with its
+# bearer feature, "Enable Abilities for MCP", test abilities) + this server in
+# both AUTH_MODE=resource and AUTH_MODE=wordpress. Everything is test-only:
+# fixed secrets, plain HTTP inside the stack network, ports bound to
+# 127.0.0.1. See test-stack/README.md.
+#
+#   docker compose -f test-stack/docker-compose.yml up -d --build
+#   docker compose -f test-stack/docker-compose.yml run --rm e2e
+#   docker compose -f test-stack/docker-compose.yml down -v
+#
+# SSO_PLUGIN_DIR: a checkout of sso-login-oidc (default: the sibling
+# directory ../../wordpress-openid-connect-plugin). It is copied, never
+# written to: service sso-plugin runs `composer install` on a copy.
+# E2E_MODE: resource | wordpress | all (default) selects the e2e checks.
+#
+# Every container reaches the others by service name (http://keycloak:8080,
+# http://wordpress, http://mcp-wp:8000); those names are also the URLs in
+# tokens, WordPress' siteurl and the OAuth redirects. The e2e runner plays
+# the browser, so nothing needs to resolve them on the host.
+
+name: mcp-wordpress-test
+
+x-mcp-common: &mcp-common
+  OIDC_ISSUER: http://keycloak:8080/realms/wp
+  MCP_AUDIENCE: mcp-wordpress
+  WORDPRESS_URL: http://wordpress
+  # Test-only: plain HTTP inside the stack network.
+  WORDPRESS_ALLOW_HTTP: "on"
+  BASE_URL_ALLOW_HTTP: "on"
+  # Every run sees ability changes immediately.
+  ABILITY_CACHE_TTL: "0"
+  LOG_LEVEL: INFO
+
+x-mcp-healthcheck: &mcp-healthcheck
+  # /healthz needs no token and touches neither Keycloak nor WordPress.
+  test: ["CMD-SHELL", "python -c \"import os,sys,urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8000'), timeout=4).status != 200)\""]
+  interval: 5s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+
+x-wordpress-db: &wordpress-db
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_NAME: wordpress
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  # The official image's wp-config.php evaluates this at runtime, so wp-cli
+  # (wp-setup) needs it as much as Apache does.
+  # "local": Application Passwords over plain HTTP, and an http
+  # success_url for authorize-application.php (both need HTTPS
+  # otherwise); sso-login-oidc's bearer feature likewise.
+  WORDPRESS_CONFIG_EXTRA: |
+    define( 'WP_ENVIRONMENT_TYPE', 'local' );
+    define( 'WP_HOME', 'http://wordpress' );
+    define( 'WP_SITEURL', 'http://wordpress' );
+    define( 'WP_DEBUG', true );
+    define( 'WP_DEBUG_LOG', true );
+    define( 'WP_DEBUG_DISPLAY', false );
+
+x-wordpress-volumes: &wordpress-volumes
+  - wordpress:/var/www/html
+  - sso-plugin:/var/www/html/wp-content/plugins/sso-login-oidc
+  - ./wordpress/e2e-abilities.php:/var/www/html/wp-content/mu-plugins/e2e-abilities.php:ro
+
+services:
+  # The Keycloak realm to import (users with fixed ids, audience mapper).
+  init:
+    image: alpine:3.22
+    command: ["sh", "/prepare.sh"]
+    volumes:
+      - ./init/prepare.sh:/prepare.sh:ro
+      - realm:/out/realm
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-26.8.1}
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # The issuer every container sees and verifies: http://keycloak:8080/realms/wp.
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - realm:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      # The image has no curl; bash can speak HTTP to the management port.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  # sso-login-oidc with its Composer dependencies, on a copy of
+  # SSO_PLUGIN_DIR (the checkout's own vendor/ is left alone).
+  sso-plugin:
+    image: composer:2
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        find /plugin -mindepth 1 -delete
+        tar -C /src --exclude=./vendor --exclude=./vendor-prefixed --exclude=./node_modules \
+            --exclude=./.git --exclude=./tests -cf - . | tar -C /plugin -xf -
+        cd /plugin
+        composer install --no-dev --no-interaction --no-progress --optimize-autoloader
+        chown -R 33:33 /plugin
+    volumes:
+      - ${SSO_PLUGIN_DIR:-../../wordpress-openid-connect-plugin}:/src:ro
+      - sso-plugin:/plugin
+
+  db:
+    image: mariadb:${MARIADB_VERSION:-11.4}
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  wordpress:
+    image: wordpress:${WORDPRESS_VERSION:-6.9}-apache
+    environment: *wordpress-db
+    volumes: *wordpress-volumes
+    ports:
+      - "127.0.0.1:${WORDPRESS_PORT:-8081}:80"
+    depends_on:
+      db:
+        condition: service_healthy
+      sso-plugin:
+        condition: service_completed_successfully
+    healthcheck:
+      # Apache answers PHP (the image has no curl).
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/wp-login.php') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # Installs and configures WordPress (wordpress/wp-setup.sh). Same uid as
+  # the Apache container, so files it writes stay readable there.
+  wp-setup:
+    image: wordpress:cli-${WP_CLI_VERSION:-2.12}-php8.3
+    user: "33:33"
+    command: ["sh", "/setup/wp-setup.sh"]
+    environment:
+      <<: *wordpress-db
+      EAM: ${EAM:-on}
+    volumes:
+      - wordpress:/var/www/html
+      - sso-plugin:/var/www/html/wp-content/plugins/sso-login-oidc
+      - ./wordpress/e2e-abilities.php:/var/www/html/wp-content/mu-plugins/e2e-abilities.php:ro
+      - ./wordpress:/setup:ro
+    depends_on:
+      wordpress:
+        condition: service_healthy
+
+  # AUTH_MODE=resource: Keycloak tokens in, the same token on to WordPress.
+  mcp-resource:
+    build:
+      context: ..
+    image: mcp-wordpress-oauth:test
+    environment:
+      <<: *mcp-common
+      AUTH_MODE: resource
+      BASE_URL: http://mcp-resource:8000
+    ports:
+      - "127.0.0.1:${MCP_RESOURCE_PORT:-8000}:8000"
+    healthcheck: *mcp-healthcheck
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      wp-setup:
+        condition: service_completed_successfully
+
+  # AUTH_MODE=wordpress: this server as OAuth server, WordPress Application
+  # Passwords as the credential.
+  mcp-wp:
+    image: mcp-wordpress-oauth:test
+    environment:
+      <<: *mcp-common
+      AUTH_MODE: wordpress
+      BASE_URL: http://mcp-wp:8000
+      # Test-only keys. Generate your own: docs and .env.example.
+      OAUTH_JWT_SIGNING_KEY: test-stack-signing-key-not-a-secret-0123456789
+      OAUTH_STORAGE_KEY: vS4Bku_FA3AY7bx0Rvwfw4h8-Mmln6i4dEkbWPFDV_I=
+      OAUTH_DCR_ENABLED: "on"
+      OAUTH_APP_NAME: MCP e2e
+    volumes:
+      - mcp-wp-data:/data
+    ports:
+      - "127.0.0.1:${MCP_WP_PORT:-8001}:8000"
+    healthcheck: *mcp-healthcheck
+    depends_on:
+      mcp-resource:
+        condition: service_started  # same image; built by mcp-resource
+      wp-setup:
+        condition: service_completed_successfully
+
+  # End-to-end checks (test-stack/e2e.py), run on demand:
+  #   docker compose -f test-stack/docker-compose.yml run --rm e2e
+  e2e:
+    image: mcp-wordpress-oauth:test
+    profiles: [e2e]
+    entrypoint: ["python", "/e2e.py"]
+    environment:
+      E2E_MODE: ${E2E_MODE:-all}
+      KEYCLOAK_URL: http://keycloak:8080
+      WORDPRESS_URL: http://wordpress
+      MCP_RESOURCE_URL: http://mcp-resource:8000
+      MCP_WP_URL: http://mcp-wp:8000
+    volumes:
+      - ./e2e.py:/e2e.py:ro
+    depends_on:
+      mcp-resource:
+        condition: service_healthy
+      mcp-wp:
+        condition: service_healthy
+
+volumes:
+  realm:
+  sso-plugin:
+  wordpress:
+  mcp-wp-data:

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-wordpress-oauth"
+# From git tags vX.Y.Z (setuptools-scm); CI injects it for Docker builds,
+# where .git isn't in the build context (docs/decisions.md, D11).
+dynamic = ["version"]
+description = "MCP server exposing a WordPress site's Abilities as tools, acting as the signed-in WordPress user (Keycloak or WordPress Application Password login)"
+readme = "README.md"
+requires-python = ">=3.11"
+# Compatible-range pins: AUTH_MODE=wordpress builds on FastMCP OAuthProxy
+# internals (docs/decisions.md, D7, D12) that change between majors.
+dependencies = [
+    "fastmcp>=4.1,<5",
+    "httpx2>=2.13,<3",
+    "python-dotenv>=1,<2",
+    # Fernet for the Application Password store (already a fastmcp dependency).
+    "cryptography>=43",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+mcp-wordpress-oauth = "mcp_wordpress.__main__:main"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

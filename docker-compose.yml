@@ -1,0 +1,35 @@
+# mcp-wordpress-oauth next to your existing WordPress (and Keycloak).
+#
+#   cp .env.example .env   # then edit
+#   docker compose up -d
+#
+# Put a TLS-terminating reverse proxy in front and use its public URL as
+# BASE_URL. In AUTH_MODE=wordpress browsers are redirected here (consent
+# page, /wp/callback), so the URL must be publicly reachable over HTTPS.
+
+name: mcp-wordpress-oauth
+
+services:
+  mcp-wordpress:
+    build: .
+    image: mcp-wordpress-oauth
+    container_name: mcp-wordpress
+    env_file: .env
+    volumes:
+      # AUTH_MODE=proxy/wordpress state; harmless otherwise.
+      - mcp-wordpress-data:/data
+    # Localhost only: requests carry users' tokens, so plain HTTP must not
+    # leave this host. The TLS reverse proxy is the way in.
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    # /healthz needs no token and touches neither Keycloak nor WordPress.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,sys,urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8000'), timeout=4).status != 200)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mcp-wordpress-data:
