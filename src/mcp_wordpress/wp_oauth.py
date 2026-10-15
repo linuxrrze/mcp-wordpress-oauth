@@ -35,6 +35,7 @@ from urllib.parse import urlencode, urlsplit
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient, _matches_registered_redirect_uri
 from fastmcp.server.auth.oauth_proxy.ui import create_error_html
 from fastmcp.server.auth.oauth_proxy.upstream import OAuthError
 from key_value.aio.adapters.pydantic import PydanticAdapter
@@ -47,6 +48,7 @@ from key_value.aio.stores.filetree import (
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from mcp.server.auth.provider import RefreshToken
 from mcp.server.auth.settings import RevocationOptions
+from mcp.shared.auth import InvalidRedirectUriError
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -220,6 +222,19 @@ class GrantResolver:
                 "(Users > Profile > Application Passwords). Reconnect this MCP server to sign in again.")
 
 
+class RegisteredRedirectClient(ProxyDCRClient):
+    """A DCR client that may only use the redirect URIs it registered (the
+    loopback port may vary, as OAuth 2.1 allows), as the MCP spec requires.
+    With an allowlist configured, FastMCP's ProxyDCRClient checks only the
+    allowlist, so a client registered for one allowlisted callback could have
+    codes sent to another (D9, docs/mcp-authorization.md)."""
+
+    def validate_redirect_uri(self, redirect_uri):  # type: ignore[override]
+        if redirect_uri is not None and not _matches_registered_redirect_uri(redirect_uri, self.redirect_uris):
+            raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' is not registered for this client.")
+        return super().validate_redirect_uri(redirect_uri)
+
+
 class WordPressAuthServer(OAuthProxy):
     def __init__(self, settings: Settings, wp: WordPressClient, *, store: AsyncKeyValue | None = None) -> None:
         oauth = settings.oauth
@@ -270,7 +285,11 @@ class WordPressAuthServer(OAuthProxy):
             if client_id not in self.oauth_settings.cimd_allowlist:
                 logger.warning("Client metadata document %s is not in OAUTH_CIMD_ALLOWLIST", client_id)
                 return None
-        return await super().get_client(client_id)
+        client = await super().get_client(client_id)
+        if type(client) is ProxyDCRClient and client.cimd_document is None:
+            # CIMD clients are already held to their document's redirect URIs.
+            return RegisteredRedirectClient.model_validate(client.model_dump())
+        return client
 
     # ── Upstream = WordPress authorize-application.php ────────────────────────
 

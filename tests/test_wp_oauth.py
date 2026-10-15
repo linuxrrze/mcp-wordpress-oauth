@@ -145,6 +145,27 @@ async def test_registration_redirect_allowlist(server, redirect, ok):
     assert (resp.status_code == 201) is ok, resp.text
 
 
+@pytest.mark.parametrize("redirect, ok", [
+    (REDIRECT, True),
+    ("http://localhost:4000/callback", True),  # loopback: only the port may vary
+    ("http://localhost:3000/other", False),
+    ("http://127.0.0.1:3000/callback", False),
+    ("https://claude.ai/api/mcp/auth_callback", False),  # allowlisted, but not this client's
+])
+async def test_authorize_only_with_a_registered_redirect_uri(server, redirect, ok):
+    c, _ = server
+    client_id = await register(c)
+    _, challenge = _pkce()
+    resp = await c.get("/authorize", params={"response_type": "code", "client_id": client_id, "redirect_uri": redirect,
+                                             "state": "s", "code_challenge": challenge, "code_challenge_method": "S256"})
+    if ok:
+        assert resp.status_code == 302 and urlsplit(resp.headers["location"]).path == "/consent", resp.text
+    else:
+        # Never redirected to the unregistered URI.
+        assert resp.status_code == 400, resp.text
+        assert not resp.headers.get("location", "").startswith(redirect)
+
+
 async def test_cimd_allowlist_and_upstream_id(server):
     _, auth = server
     assert await auth.get_client("https://evil.example/oauth/client-metadata") is None
