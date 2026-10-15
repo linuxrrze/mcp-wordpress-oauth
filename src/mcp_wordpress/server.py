@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import urlsplit
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentAccessToken
@@ -23,26 +24,37 @@ from .wordpress import WordPressClient, WordPressError
 logger = logging.getLogger(__name__)
 
 MCP_PATH = "/mcp"
+AS_METADATA_PATH = "/.well-known/oauth-authorization-server"
 STATIC_TOOLS = ("whoami",)
 
 
 class EndpointPaths:
-    """Forgive the two endpoint URLs people configure by mistake.
+    """Forgive the two endpoint URLs people configure by mistake, and serve
+    the authorization server metadata where MCP clients look for it.
 
     - `/mcp/` is served as `/mcp`. Starlette would otherwise redirect it to
       `/mcp`, built from the internal Host and without a reverse proxy's
       stripped prefix, which no client can reach.
     - `/` gets a 404 that names the actual endpoint instead of an empty one.
+    - With BASE_URL at a path (`https://host/prefix`), the issuer has that
+      path, and MCP clients ask for its metadata at
+      `/.well-known/oauth-authorization-server/prefix` (RFC 8414 path
+      insertion) at the host's root. FastMCP serves it without the suffix,
+      so that request is answered as `/.well-known/oauth-authorization-server`
+      (docs/mcp-authorization.md).
     """
 
-    def __init__(self, app: ASGIApp, endpoint: str) -> None:
+    def __init__(self, app: ASGIApp, endpoint: str, prefix: str = "") -> None:
         self.app = app
         self.endpoint = endpoint
+        self.as_metadata_alias = AS_METADATA_PATH + prefix if prefix else None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             if scope["path"] == MCP_PATH + "/":
                 scope = {**scope, "path": MCP_PATH, "raw_path": MCP_PATH.encode()}
+            elif scope["path"] == self.as_metadata_alias:
+                scope = {**scope, "path": AS_METADATA_PATH, "raw_path": AS_METADATA_PATH.encode()}
             elif scope["path"] == "/":
                 response = PlainTextResponse(f"Not the MCP endpoint. Use {self.endpoint}\n", status_code=404)
                 await response(scope, receive, send)
@@ -79,7 +91,8 @@ def client_settings(settings: Settings) -> list[str]:
 
 def http_middleware(settings: Settings) -> list[Middleware]:
     """ASGI middleware for the HTTP app (`run()` and `http_app()` alike)."""
-    return [Middleware(EndpointPaths, endpoint=settings.base_url.rstrip("/") + MCP_PATH)]
+    base = settings.base_url.rstrip("/")
+    return [Middleware(EndpointPaths, endpoint=base + MCP_PATH, prefix=urlsplit(base).path)]
 
 
 def build_wordpress_client(settings: Settings) -> WordPressClient:

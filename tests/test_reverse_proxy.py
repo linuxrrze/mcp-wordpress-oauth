@@ -61,7 +61,9 @@ async def test_proxy_mode_under_prefix(serve, keypair, tmp_path, monkeypatch, wp
         provider, resolver = auth_module.build_auth(settings, wp_client, verifier)
     async with serve(_app(settings, wp_client, provider, resolver), base_url=INTERNAL) as c:
         metadata = (await c.get("/.well-known/oauth-authorization-server")).json()
+        inserted = (await c.get("/.well-known/oauth-authorization-server/mcp/wordpress")).json()
     assert metadata["issuer"].rstrip("/") == PUBLIC
+    assert inserted == metadata
     for key, path in [("authorization_endpoint", "/authorize"), ("token_endpoint", "/token"),
                       ("registration_endpoint", "/register")]:
         assert metadata[key] == PUBLIC + path
@@ -73,7 +75,13 @@ async def test_wordpress_mode_under_prefix(serve, tmp_path, wp_client):
     provider, resolver = auth_module.build_auth(settings, wp_client)
     async with serve(_app(settings, wp_client, provider, resolver), base_url=INTERNAL) as c:
         metadata = (await c.get("/.well-known/oauth-authorization-server")).json()
+        # Where MCP clients look for an issuer with a path (RFC 8414 path
+        # insertion), forwarded unchanged by the reverse proxy.
+        inserted = await c.get("/.well-known/oauth-authorization-server/mcp/wordpress")
+        other = await c.get("/.well-known/oauth-authorization-server/elsewhere")
     assert metadata["authorization_endpoint"] == PUBLIC + "/authorize"
+    assert inserted.status_code == 200 and inserted.json() == metadata
+    assert other.status_code == 404
     # WordPress sends the browser back here (success_url / reject_url).
     assert provider._callback_url("t") == PUBLIC + "/wp/callback?state=t"
 

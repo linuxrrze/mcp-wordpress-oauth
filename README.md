@@ -90,6 +90,9 @@ sequenceDiagram
 - WordPress only creates Application Passwords over HTTPS. Both the site
   and `BASE_URL` must be HTTPS.
 
+How each mode relates to the MCP authorization specification (draft),
+including where it deliberately deviates: [docs/mcp-authorization.md](docs/mcp-authorization.md).
+
 ## Run
 
 ```bash
@@ -103,6 +106,19 @@ there (docs/decisions.md, D8). The server's own access log is off.
 
 The MCP endpoint is `BASE_URL + /mcp`. On startup, the server logs the
 client settings to use. `GET /healthz` needs no token.
+
+**Serving under a path** (`BASE_URL=https://ai.example.com/mcp/wordpress`,
+with the proxy stripping `/mcp/wordpress`): MCP clients look for the
+discovery documents at the host's root, so the proxy must also forward
+these two paths to the server **unchanged**, without stripping:
+
+```
+/.well-known/oauth-protected-resource/mcp/wordpress/mcp   (all modes)
+/.well-known/oauth-authorization-server/mcp/wordpress     (proxy, wordpress)
+```
+
+At the root of a host (`BASE_URL=https://mcp-wp.example.com`) nothing extra
+is needed. See [docs/mcp-authorization.md](docs/mcp-authorization.md).
 
 ## Tools
 
