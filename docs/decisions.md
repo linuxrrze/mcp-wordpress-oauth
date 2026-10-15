@@ -209,6 +209,11 @@ exercises each hook with the full browser flow.
   and Claude's callbacks, the same list EAM uses, plus loopback on any
   port). Wildcards only in the path; a host wildcard would let anyone who
   registers a matching domain receive codes.
+- At `/authorize`, a DCR client may only use a redirect URI it registered
+  (exact; the loopback port may vary), and that URI must still match the
+  allowlist. With an allowlist, FastMCP checks only the allowlist, which
+  falls short of the MCP spec's exact match (`RegisteredRedirectClient`,
+  docs/mcp-authorization.md).
 - CIMD client ids must be in `OAUTH_CIMD_ALLOWLIST`.
 - OAuthProxy would accept its "upstream client id" (here the public
   `app_id`) as a client with any redirect URI; `get_client` refuses it.

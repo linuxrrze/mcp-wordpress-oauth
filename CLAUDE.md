@@ -16,6 +16,8 @@ OIDC login plugin, D6). sso-login-oidc has an equivalent feature of its own.
 **`docs/decisions.md` (D1–D14) is the source of truth for *why*.** Read the
 relevant decision before changing auth, credential handling, client
 admission or the ability→tool mapping, and update it when you change one.
+`docs/mcp-authorization.md` maps each mode to the MCP authorization spec
+(draft); update it when auth behaviour or FastMCP changes.
 
 ## Layout
 
